@@ -2,20 +2,23 @@ import { useState } from "react";
 import "./App.css";
 
 function App() {
-  // 입력값 관리
+  // 지출 입력값
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("식비");
   const [description, setDescription] = useState("");
 
-  // 지출 목록과 오류 메시지
+  // 지출 목록과 오류
   const [expenses, setExpenses] = useState([]);
   const [error, setError] = useState("");
 
   // 수정 중인 지출 ID
   const [editingId, setEditingId] = useState(null);
 
-  // 월 예산 (임시 고정값)
-  const monthlyBudget = 300000;
+  // 예산 관리
+  const [monthlyBudget, setMonthlyBudget] = useState(300000);
+  const [budgetInput, setBudgetInput] = useState("300000");
+  const [budgetError, setBudgetError] = useState("");
+  const [budgetMessage, setBudgetMessage] = useState("");
 
   // 총지출 계산
   const totalExpense = expenses.reduce(
@@ -26,12 +29,33 @@ function App() {
   // 남은 예산 계산
   const remainingBudget = monthlyBudget - totalExpense;
 
-  // 원화 표시 함수
+  // 원화 표시
   const formatWon = (value) => {
     return value.toLocaleString("ko-KR") + "원";
   };
 
-  // 입력창 초기화 함수
+  // 예산 변경 함수
+  const handleSaveBudget = (event) => {
+    event.preventDefault();
+
+    const newBudget = Number(budgetInput);
+
+    if (
+      budgetInput.trim() === "" ||
+      !Number.isSafeInteger(newBudget) ||
+      newBudget <= 0
+    ) {
+      setBudgetError("올바른 예산 금액을 입력해주세요.");
+      setBudgetMessage("");
+      return;
+    }
+
+    setMonthlyBudget(newBudget);
+    setBudgetError("");
+    setBudgetMessage("예산이 변경되었습니다.");
+  };
+
+  // 지출 입력창 초기화
   const resetForm = () => {
     setAmount("");
     setCategory("식비");
@@ -40,13 +64,12 @@ function App() {
     setError("");
   };
 
-  // 지출 추가 및 수정 함수
+  // 지출 추가 및 수정
   const handleSaveExpense = (event) => {
     event.preventDefault();
 
     const expenseAmount = Number(amount);
 
-    // 금액 검사
     if (
       amount.trim() === "" ||
       !Number.isSafeInteger(expenseAmount) ||
@@ -56,7 +79,6 @@ function App() {
       return;
     }
 
-    // 내용 검사
     if (description.trim() === "") {
       setError("지출 내용을 입력해주세요.");
       return;
@@ -69,14 +91,14 @@ function App() {
     };
 
     if (editingId !== null) {
-      // 기존 지출 수정
+      // 지출 수정
       setExpenses((prevExpenses) =>
         prevExpenses.map((expense) =>
           expense.id === editingId ? { ...expense, ...expenseData } : expense,
         ),
       );
     } else {
-      // 새로운 지출 추가
+      // 지출 추가
       const newExpense = {
         id: crypto.randomUUID(),
         ...expenseData,
@@ -88,7 +110,7 @@ function App() {
     resetForm();
   };
 
-  // 수정 버튼 클릭 시 실행
+  // 수정 버튼
   const handleEditExpense = (expense) => {
     setEditingId(expense.id);
     setAmount(String(expense.amount));
@@ -97,13 +119,12 @@ function App() {
     setError("");
   };
 
-  // 삭제 버튼 클릭 시 실행
+  // 삭제 버튼
   const handleDeleteExpense = (id) => {
     setExpenses((prevExpenses) =>
       prevExpenses.filter((expense) => expense.id !== id),
     );
 
-    // 수정 중인 지출을 삭제하면 입력창 초기화
     if (editingId === id) {
       resetForm();
     }
@@ -121,6 +142,39 @@ function App() {
       <p>이번 달 예산: {formatWon(monthlyBudget)}</p>
       <p>이번 달 지출: {formatWon(totalExpense)}</p>
       <p>남은 예산: {formatWon(remainingBudget)}</p>
+
+      <hr />
+
+      <h2>예산 설정</h2>
+
+      <form onSubmit={handleSaveBudget}>
+        <label htmlFor="budget">이번 달 예산</label>
+        <br />
+        <input
+          id="budget"
+          type="number"
+          min="1"
+          step="1"
+          placeholder="예: 500000"
+          value={budgetInput}
+          onChange={(event) => {
+            setBudgetInput(event.target.value);
+            setBudgetError("");
+            setBudgetMessage("");
+          }}
+        />{" "}
+        <button type="submit">예산 변경하기</button>
+        {budgetError && (
+          <p role="alert" style={{ color: "red" }}>
+            {budgetError}
+          </p>
+        )}
+        {budgetMessage && (
+          <p role="status" style={{ color: "green" }}>
+            {budgetMessage}
+          </p>
+        )}
+      </form>
 
       <hr />
 
