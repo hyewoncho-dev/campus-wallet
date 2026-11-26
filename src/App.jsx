@@ -7,11 +7,14 @@ function App() {
   const [category, setCategory] = useState("식비");
   const [description, setDescription] = useState("");
 
-  // 지출 목록과 오류 메시지 관리
+  // 지출 목록과 오류 메시지
   const [expenses, setExpenses] = useState([]);
   const [error, setError] = useState("");
 
-  // 월 예산
+  // 수정 중인 지출 ID
+  const [editingId, setEditingId] = useState(null);
+
+  // 월 예산 (임시 고정값)
   const monthlyBudget = 300000;
 
   // 총지출 계산
@@ -23,18 +26,27 @@ function App() {
   // 남은 예산 계산
   const remainingBudget = monthlyBudget - totalExpense;
 
-  // 금액을 원 단위로 표시
+  // 원화 표시 함수
   const formatWon = (value) => {
     return value.toLocaleString("ko-KR") + "원";
   };
 
-  // 지출 추가 함수
-  const handleAddExpense = (event) => {
+  // 입력창 초기화 함수
+  const resetForm = () => {
+    setAmount("");
+    setCategory("식비");
+    setDescription("");
+    setEditingId(null);
+    setError("");
+  };
+
+  // 지출 추가 및 수정 함수
+  const handleSaveExpense = (event) => {
     event.preventDefault();
 
     const expenseAmount = Number(amount);
 
-    // 금액 입력 검사
+    // 금액 검사
     if (
       amount.trim() === "" ||
       !Number.isSafeInteger(expenseAmount) ||
@@ -44,34 +56,57 @@ function App() {
       return;
     }
 
-    // 지출 내용 입력 검사
+    // 내용 검사
     if (description.trim() === "") {
       setError("지출 내용을 입력해주세요.");
       return;
     }
 
-    // 새로운 지출 객체 생성
-    const newExpense = {
-      id: crypto.randomUUID(),
+    const expenseData = {
       amount: expenseAmount,
       category: category,
       description: description.trim(),
     };
 
-    // 지출 목록에 추가
-    setExpenses((prevExpenses) => [newExpense, ...prevExpenses]);
+    if (editingId !== null) {
+      // 기존 지출 수정
+      setExpenses((prevExpenses) =>
+        prevExpenses.map((expense) =>
+          expense.id === editingId ? { ...expense, ...expenseData } : expense,
+        ),
+      );
+    } else {
+      // 새로운 지출 추가
+      const newExpense = {
+        id: crypto.randomUUID(),
+        ...expenseData,
+      };
 
-    // 입력창과 오류 메시지 초기화
-    setAmount("");
-    setDescription("");
+      setExpenses((prevExpenses) => [newExpense, ...prevExpenses]);
+    }
+
+    resetForm();
+  };
+
+  // 수정 버튼 클릭 시 실행
+  const handleEditExpense = (expense) => {
+    setEditingId(expense.id);
+    setAmount(String(expense.amount));
+    setCategory(expense.category);
+    setDescription(expense.description);
     setError("");
   };
 
-  // 지출 삭제 함수
+  // 삭제 버튼 클릭 시 실행
   const handleDeleteExpense = (id) => {
     setExpenses((prevExpenses) =>
       prevExpenses.filter((expense) => expense.id !== id),
     );
+
+    // 수정 중인 지출을 삭제하면 입력창 초기화
+    if (editingId === id) {
+      resetForm();
+    }
   };
 
   return (
@@ -89,9 +124,9 @@ function App() {
 
       <hr />
 
-      <h2>지출 추가하기</h2>
+      <h2>{editingId !== null ? "지출 수정하기" : "지출 추가하기"}</h2>
 
-      <form onSubmit={handleAddExpense}>
+      <form onSubmit={handleSaveExpense}>
         <div>
           <label htmlFor="amount">지출 금액</label>
           <br />
@@ -146,7 +181,18 @@ function App() {
           </p>
         )}
 
-        <button type="submit">+ 지출 추가하기</button>
+        <button type="submit">
+          {editingId !== null ? "수정 저장" : "+ 지출 추가하기"}
+        </button>
+
+        {editingId !== null && (
+          <>
+            {" "}
+            <button type="button" onClick={resetForm}>
+              수정 취소
+            </button>
+          </>
+        )}
       </form>
 
       <hr />
@@ -162,6 +208,9 @@ function App() {
               {expense.category} - {expense.description}
               {" : "}
               {formatWon(expense.amount)}{" "}
+              <button type="button" onClick={() => handleEditExpense(expense)}>
+                수정
+              </button>{" "}
               <button
                 type="button"
                 onClick={() => handleDeleteExpense(expense.id)}
