@@ -14,12 +14,13 @@ function App() {
   // 월 예산
   const monthlyBudget = 300000;
 
-  // 총지출과 남은 예산 계산
+  // 총지출 계산
   const totalExpense = expenses.reduce(
     (sum, expense) => sum + expense.amount,
     0,
   );
 
+  // 남은 예산 계산
   const remainingBudget = monthlyBudget - totalExpense;
 
   // 금액을 원 단위로 표시
@@ -33,6 +34,7 @@ function App() {
 
     const expenseAmount = Number(amount);
 
+    // 금액 입력 검사
     if (
       amount.trim() === "" ||
       !Number.isSafeInteger(expenseAmount) ||
@@ -42,11 +44,13 @@ function App() {
       return;
     }
 
+    // 지출 내용 입력 검사
     if (description.trim() === "") {
       setError("지출 내용을 입력해주세요.");
       return;
     }
 
+    // 새로운 지출 객체 생성
     const newExpense = {
       id: crypto.randomUUID(),
       amount: expenseAmount,
@@ -54,12 +58,20 @@ function App() {
       description: description.trim(),
     };
 
+    // 지출 목록에 추가
     setExpenses((prevExpenses) => [newExpense, ...prevExpenses]);
 
-    // 입력창 초기화
+    // 입력창과 오류 메시지 초기화
     setAmount("");
     setDescription("");
     setError("");
+  };
+
+  // 지출 삭제 함수
+  const handleDeleteExpense = (id) => {
+    setExpenses((prevExpenses) =>
+      prevExpenses.filter((expense) => expense.id !== id),
+    );
   };
 
   return (
@@ -86,6 +98,8 @@ function App() {
           <input
             id="amount"
             type="number"
+            min="1"
+            step="1"
             placeholder="예: 6000"
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
@@ -147,7 +161,13 @@ function App() {
             <li key={expense.id}>
               {expense.category} - {expense.description}
               {" : "}
-              {formatWon(expense.amount)}
+              {formatWon(expense.amount)}{" "}
+              <button
+                type="button"
+                onClick={() => handleDeleteExpense(expense.id)}
+              >
+                삭제
+              </button>
             </li>
           ))}
         </ul>
