@@ -79,7 +79,7 @@ function AuthGate() {
 
       {error && <p role="alert">{error}</p>}
 
-      <App />
+      <App user={user} />
     </>
   );
 }

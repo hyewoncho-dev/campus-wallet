@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { expenseRepository } from "./repositories/expenseRepository";
 import "./App.css";
 
-// 오늘 날짜를 YYYY-MM-DD 형식으로 반환
+// 오늘 날짜 가져오기
 function getToday() {
   const now = new Date();
   const year = now.getFullYear();
@@ -11,7 +12,7 @@ function getToday() {
   return `${year}-${month}-${day}`;
 }
 
-function App() {
+function App({ user }) {
   const today = getToday();
 
   // 조회할 월
@@ -23,40 +24,85 @@ function App() {
   const [description, setDescription] = useState("");
   const [expenseDate, setExpenseDate] = useState(today);
 
-  // 지출 목록과 오류
+  // Firestore에서 불러온 지출 목록
   const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+
+  // 오류 메시지
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+
+  // 수정 중인 지출
   const [editingId, setEditingId] = useState(null);
 
-  // 월별 예산 관리
+  // 월별 예산 (아직 React에서 관리)
   const [budgets, setBudgets] = useState({});
   const [budgetInput, setBudgetInput] = useState("300000");
   const [budgetError, setBudgetError] = useState("");
   const [budgetMessage, setBudgetMessage] = useState("");
 
-  // 선택한 월의 예산 (기본값 30만 원)
+  // Firebase에서 지출 내역 불러오기
+  useEffect(() => {
+    let active = true;
+
+    const loadExpenses = async () => {
+      setLoading(true);
+      setLoadError("");
+      setExpenses([]);
+
+      try {
+        const data = await expenseRepository.getAll(user.uid);
+
+        if (active) {
+          setExpenses(data);
+        }
+      } catch (err) {
+        console.error("지출 조회 실패:", err);
+
+        if (active) {
+          setLoadError(
+            "지출 내역을 불러오지 못했습니다. Firebase 설정을 확인해주세요.",
+          );
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadExpenses();
+
+    return () => {
+      active = false;
+    };
+  }, [user.uid]);
+
+  // 선택한 월의 예산
   const monthlyBudget = budgets[selectedMonth] ?? 300000;
 
-  // 선택한 월에 해당하는 지출만 조회
+  // 선택한 월의 지출만 조회
   const monthlyExpenses = expenses
     .filter((expense) => expense.date.slice(0, 7) === selectedMonth)
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  // 선택한 월의 총지출
+  // 총지출 계산
   const totalExpense = monthlyExpenses.reduce(
     (sum, expense) => sum + expense.amount,
     0,
   );
 
-  // 남은 예산
+  // 남은 예산 계산
   const remainingBudget = monthlyBudget - totalExpense;
 
-  // 금액 표시
+  // 원화 표시
   const formatWon = (value) => {
     return value.toLocaleString("ko-KR") + "원";
   };
 
-  // 입력창 초기화
+  // 지출 입력창 초기화
   const resetForm = (month = selectedMonth) => {
     setAmount("");
     setCategory("식비");
@@ -79,7 +125,7 @@ function App() {
     resetForm(month);
   };
 
-  // 월별 예산 저장
+  // 월별 예산 변경
   const handleSaveBudget = (event) => {
     event.preventDefault();
 
@@ -104,9 +150,13 @@ function App() {
     setBudgetMessage("예산이 변경되었습니다.");
   };
 
-  // 지출 추가 및 수정
-  const handleSaveExpense = (event) => {
+  // 지출 추가 및 수정 (Firestore)
+  const handleSaveExpense = async (event) => {
     event.preventDefault();
+
+    if (saving || deletingId !== null || loading || loadError) {
+      return;
+    }
 
     const expenseAmount = Number(amount);
 
@@ -136,27 +186,44 @@ function App() {
       date: expenseDate,
     };
 
-    if (editingId !== null) {
-      // 기존 지출 수정
-      setExpenses((prevExpenses) =>
-        prevExpenses.map((expense) =>
-          expense.id === editingId ? { ...expense, ...expenseData } : expense,
-        ),
+    setSaving(true);
+    setError("");
+
+    try {
+      if (editingId !== null) {
+        // Firestore 지출 수정
+        await expenseRepository.update(user.uid, editingId, expenseData);
+
+        setExpenses((prevExpenses) =>
+          prevExpenses.map((expense) =>
+            expense.id === editingId ? { ...expense, ...expenseData } : expense,
+          ),
+        );
+      } else {
+        // Firestore 지출 추가
+        const newId = await expenseRepository.add(user.uid, expenseData);
+
+        setExpenses((prevExpenses) => [
+          {
+            id: newId,
+            ...expenseData,
+          },
+          ...prevExpenses,
+        ]);
+      }
+
+      resetForm();
+    } catch (err) {
+      console.error("지출 저장 실패:", err);
+      setError(
+        "지출 저장에 실패했습니다. 인터넷 연결과 Firebase 권한을 확인해주세요.",
       );
-    } else {
-      // 새 지출 추가
-      const newExpense = {
-        id: crypto.randomUUID(),
-        ...expenseData,
-      };
-
-      setExpenses((prevExpenses) => [newExpense, ...prevExpenses]);
+    } finally {
+      setSaving(false);
     }
-
-    resetForm();
   };
 
-  // 지출 수정 시작
+  // 지출 수정 버튼
   const handleEditExpense = (expense) => {
     setEditingId(expense.id);
     setAmount(String(expense.amount));
@@ -166,14 +233,28 @@ function App() {
     setError("");
   };
 
-  // 지출 삭제
-  const handleDeleteExpense = (id) => {
-    setExpenses((prevExpenses) =>
-      prevExpenses.filter((expense) => expense.id !== id),
-    );
+  // 지출 삭제 (Firestore)
+  const handleDeleteExpense = async (id) => {
+    if (saving || deletingId !== null) return;
 
-    if (editingId === id) {
-      resetForm();
+    setDeletingId(id);
+    setError("");
+
+    try {
+      await expenseRepository.remove(user.uid, id);
+
+      setExpenses((prevExpenses) =>
+        prevExpenses.filter((expense) => expense.id !== id),
+      );
+
+      if (editingId === id) {
+        resetForm();
+      }
+    } catch (err) {
+      console.error("지출 삭제 실패:", err);
+      setError("지출 삭제에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -243,6 +324,7 @@ function App() {
         <div>
           <label htmlFor="expenseDate">지출 날짜</label>
           <br />
+
           <input
             id="expenseDate"
             type="date"
@@ -256,6 +338,7 @@ function App() {
         <div>
           <label htmlFor="amount">지출 금액</label>
           <br />
+
           <input
             id="amount"
             type="number"
@@ -272,6 +355,7 @@ function App() {
         <div>
           <label htmlFor="category">카테고리</label>
           <br />
+
           <select
             id="category"
             value={category}
@@ -290,6 +374,7 @@ function App() {
         <div>
           <label htmlFor="description">지출 내용</label>
           <br />
+
           <input
             id="description"
             type="text"
@@ -307,14 +392,23 @@ function App() {
           </p>
         )}
 
-        <button type="submit">
-          {editingId !== null ? "수정 저장" : "+ 지출 추가하기"}
+        <button
+          type="submit"
+          disabled={
+            saving || deletingId !== null || loading || Boolean(loadError)
+          }
+        >
+          {saving
+            ? "저장 중..."
+            : editingId !== null
+              ? "수정 저장"
+              : "+ 지출 추가하기"}
         </button>
 
         {editingId !== null && (
           <>
             {" "}
-            <button type="button" onClick={() => resetForm()}>
+            <button type="button" disabled={saving} onClick={() => resetForm()}>
               수정 취소
             </button>
           </>
@@ -325,7 +419,13 @@ function App() {
 
       <h2>{selectedMonth} 지출 내역</h2>
 
-      {monthlyExpenses.length === 0 ? (
+      {loading ? (
+        <p role="status">지출 내역을 불러오는 중입니다...</p>
+      ) : loadError ? (
+        <p role="alert" style={{ color: "red" }}>
+          {loadError}
+        </p>
+      ) : monthlyExpenses.length === 0 ? (
         <p>해당 월에 등록된 지출 내역이 없습니다.</p>
       ) : (
         <ul>
@@ -338,14 +438,19 @@ function App() {
               {expense.description}
               {" : "}
               {formatWon(expense.amount)}{" "}
-              <button type="button" onClick={() => handleEditExpense(expense)}>
+              <button
+                type="button"
+                disabled={saving || deletingId !== null}
+                onClick={() => handleEditExpense(expense)}
+              >
                 수정
               </button>{" "}
               <button
                 type="button"
+                disabled={saving || deletingId !== null}
                 onClick={() => handleDeleteExpense(expense.id)}
               >
-                삭제
+                {deletingId === expense.id ? "삭제 중..." : "삭제"}
               </button>
             </li>
           ))}
