@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { expenseRepository } from "./repositories/expenseRepository";
+import { budgetRepository } from "./repositories/budgetRepository";
 import "./App.css";
 
-// 오늘 날짜 가져오기
 function getToday() {
   const now = new Date();
   const year = now.getFullYear();
@@ -15,7 +15,6 @@ function getToday() {
 function App({ user }) {
   const today = getToday();
 
-  // 조회할 월
   const [selectedMonth, setSelectedMonth] = useState(today.slice(0, 7));
 
   // 지출 입력값
@@ -24,26 +23,25 @@ function App({ user }) {
   const [description, setDescription] = useState("");
   const [expenseDate, setExpenseDate] = useState(today);
 
-  // Firestore에서 불러온 지출 목록
+  // Firestore 지출 데이터
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-
-  // 오류 메시지
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
-
-  // 수정 중인 지출
   const [editingId, setEditingId] = useState(null);
 
-  // 월별 예산 (아직 React에서 관리)
+  // Firestore 월별 예산 데이터
   const [budgets, setBudgets] = useState({});
   const [budgetInput, setBudgetInput] = useState("300000");
+  const [budgetLoading, setBudgetLoading] = useState(true);
+  const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetError, setBudgetError] = useState("");
+  const [budgetLoadError, setBudgetLoadError] = useState("");
   const [budgetMessage, setBudgetMessage] = useState("");
 
-  // Firebase에서 지출 내역 불러오기
+  // Firestore에서 지출 내역 불러오기
   useEffect(() => {
     let active = true;
 
@@ -80,24 +78,61 @@ function App({ user }) {
     };
   }, [user.uid]);
 
-  // 선택한 월의 예산
+  // Firestore에서 월별 예산 불러오기
+  useEffect(() => {
+    let active = true;
+
+    const loadBudgets = async () => {
+      setBudgetLoading(true);
+      setBudgetLoadError("");
+
+      try {
+        const data = await budgetRepository.getAll(user.uid);
+
+        if (active) {
+          setBudgets(data);
+        }
+      } catch (err) {
+        console.error("예산 조회 실패:", err);
+
+        if (active) {
+          setBudgetLoadError(
+            "예산을 불러오지 못했습니다. Firebase 설정을 확인해주세요.",
+          );
+        }
+      } finally {
+        if (active) {
+          setBudgetLoading(false);
+        }
+      }
+    };
+
+    loadBudgets();
+
+    return () => {
+      active = false;
+    };
+  }, [user.uid]);
+
+  // 선택한 월의 예산을 입력창에 표시
+  useEffect(() => {
+    setBudgetInput(String(budgets[selectedMonth] ?? 300000));
+  }, [selectedMonth, budgets]);
+
   const monthlyBudget = budgets[selectedMonth] ?? 300000;
 
-  // 선택한 월의 지출만 조회
+  // 선택한 월의 지출 내역
   const monthlyExpenses = expenses
     .filter((expense) => expense.date.slice(0, 7) === selectedMonth)
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  // 총지출 계산
   const totalExpense = monthlyExpenses.reduce(
     (sum, expense) => sum + expense.amount,
     0,
   );
 
-  // 남은 예산 계산
   const remainingBudget = monthlyBudget - totalExpense;
 
-  // 원화 표시
   const formatWon = (value) => {
     return value.toLocaleString("ko-KR") + "원";
   };
@@ -119,15 +154,18 @@ function App({ user }) {
     if (!month) return;
 
     setSelectedMonth(month);
-    setBudgetInput(String(budgets[month] ?? 300000));
     setBudgetError("");
     setBudgetMessage("");
     resetForm(month);
   };
 
-  // 월별 예산 변경
-  const handleSaveBudget = (event) => {
+  // 월별 예산 Firestore 저장
+  const handleSaveBudget = async (event) => {
     event.preventDefault();
+
+    if (budgetLoading || budgetSaving || budgetLoadError) {
+      return;
+    }
 
     const newBudget = Number(budgetInput);
 
@@ -141,16 +179,32 @@ function App({ user }) {
       return;
     }
 
-    setBudgets((prevBudgets) => ({
-      ...prevBudgets,
-      [selectedMonth]: newBudget,
-    }));
-
+    setBudgetSaving(true);
     setBudgetError("");
-    setBudgetMessage("예산이 변경되었습니다.");
+    setBudgetMessage("");
+
+    try {
+      // Firestore에 예산 저장
+      await budgetRepository.save(user.uid, selectedMonth, newBudget);
+
+      // 화면에도 반영
+      setBudgets((prevBudgets) => ({
+        ...prevBudgets,
+        [selectedMonth]: newBudget,
+      }));
+
+      setBudgetMessage("예산이 Firebase에 저장되었습니다.");
+    } catch (err) {
+      console.error("예산 저장 실패:", err);
+      setBudgetError(
+        "예산 저장에 실패했습니다. Firebase 권한과 인터넷 연결을 확인해주세요.",
+      );
+    } finally {
+      setBudgetSaving(false);
+    }
   };
 
-  // 지출 추가 및 수정 (Firestore)
+  // 지출 추가 및 수정
   const handleSaveExpense = async (event) => {
     event.preventDefault();
 
@@ -191,7 +245,6 @@ function App({ user }) {
 
     try {
       if (editingId !== null) {
-        // Firestore 지출 수정
         await expenseRepository.update(user.uid, editingId, expenseData);
 
         setExpenses((prevExpenses) =>
@@ -200,7 +253,6 @@ function App({ user }) {
           ),
         );
       } else {
-        // Firestore 지출 추가
         const newId = await expenseRepository.add(user.uid, expenseData);
 
         setExpenses((prevExpenses) => [
@@ -215,15 +267,13 @@ function App({ user }) {
       resetForm();
     } catch (err) {
       console.error("지출 저장 실패:", err);
-      setError(
-        "지출 저장에 실패했습니다. 인터넷 연결과 Firebase 권한을 확인해주세요.",
-      );
+      setError("지출 저장에 실패했습니다. Firebase 설정을 확인해주세요.");
     } finally {
       setSaving(false);
     }
   };
 
-  // 지출 수정 버튼
+  // 지출 수정 시작
   const handleEditExpense = (expense) => {
     setEditingId(expense.id);
     setAmount(String(expense.amount));
@@ -233,7 +283,7 @@ function App({ user }) {
     setError("");
   };
 
-  // 지출 삭제 (Firestore)
+  // 지출 삭제
   const handleDeleteExpense = async (id) => {
     if (saving || deletingId !== null) return;
 
@@ -269,20 +319,28 @@ function App({ user }) {
 
       <label htmlFor="selectedMonth">조회 월</label>
       <br />
+
       <input
         id="selectedMonth"
         type="month"
         value={selectedMonth}
         onChange={handleMonthChange}
+        disabled={budgetSaving}
       />
 
       <hr />
 
       <h2>{selectedMonth} 생활비 현황</h2>
 
-      <p>월 예산: {formatWon(monthlyBudget)}</p>
-      <p>월 지출: {formatWon(totalExpense)}</p>
-      <p>남은 예산: {formatWon(remainingBudget)}</p>
+      {budgetLoading ? (
+        <p>예산을 불러오는 중입니다...</p>
+      ) : (
+        <>
+          <p>월 예산: {formatWon(monthlyBudget)}</p>
+          <p>월 지출: {formatWon(totalExpense)}</p>
+          <p>남은 예산: {formatWon(remainingBudget)}</p>
+        </>
+      )}
 
       <hr />
 
@@ -297,13 +355,24 @@ function App({ user }) {
           min="1"
           step="1"
           value={budgetInput}
+          disabled={budgetLoading || budgetSaving || Boolean(budgetLoadError)}
           onChange={(event) => {
             setBudgetInput(event.target.value);
             setBudgetError("");
             setBudgetMessage("");
           }}
         />{" "}
-        <button type="submit">예산 변경하기</button>
+        <button
+          type="submit"
+          disabled={budgetLoading || budgetSaving || Boolean(budgetLoadError)}
+        >
+          {budgetSaving ? "예산 저장 중..." : "예산 변경하기"}
+        </button>
+        {budgetLoadError && (
+          <p role="alert" style={{ color: "red" }}>
+            {budgetLoadError}
+          </p>
+        )}
         {budgetError && (
           <p role="alert" style={{ color: "red" }}>
             {budgetError}
@@ -323,6 +392,7 @@ function App({ user }) {
       <form onSubmit={handleSaveExpense}>
         <div>
           <label htmlFor="expenseDate">지출 날짜</label>
+
           <br />
 
           <input
@@ -337,6 +407,7 @@ function App({ user }) {
 
         <div>
           <label htmlFor="amount">지출 금액</label>
+
           <br />
 
           <input
@@ -354,6 +425,7 @@ function App({ user }) {
 
         <div>
           <label htmlFor="category">카테고리</label>
+
           <br />
 
           <select
@@ -373,6 +445,7 @@ function App({ user }) {
 
         <div>
           <label htmlFor="description">지출 내용</label>
+
           <br />
 
           <input
