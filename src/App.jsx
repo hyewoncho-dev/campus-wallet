@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { expenseRepository } from "./repositories/expenseRepository";
 import { budgetRepository } from "./repositories/budgetRepository";
+import { sortExpenses } from "./strategies/expenseSortStrategies";
 import "./App.css";
 
+// 오늘 날짜 가져오기
 function getToday() {
   const now = new Date();
   const year = now.getFullYear();
@@ -15,7 +17,11 @@ function getToday() {
 function App({ user }) {
   const today = getToday();
 
+  // 조회할 월
   const [selectedMonth, setSelectedMonth] = useState(today.slice(0, 7));
+
+  // Strategy 패턴: 지출 정렬 방식
+  const [sortOrder, setSortOrder] = useState("newest");
 
   // 지출 입력값
   const [amount, setAmount] = useState("");
@@ -119,20 +125,25 @@ function App({ user }) {
     setBudgetInput(String(budgets[selectedMonth] ?? 300000));
   }, [selectedMonth, budgets]);
 
+  // 선택한 월의 예산
   const monthlyBudget = budgets[selectedMonth] ?? 300000;
 
-  // 선택한 월의 지출 내역
-  const monthlyExpenses = expenses
-    .filter((expense) => expense.date.slice(0, 7) === selectedMonth)
-    .sort((a, b) => b.date.localeCompare(a.date));
+  // Strategy 패턴 적용: 선택한 정렬 방식으로 지출 정렬
+  const monthlyExpenses = sortExpenses(
+    expenses.filter((expense) => expense.date.slice(0, 7) === selectedMonth),
+    sortOrder,
+  );
 
+  // 총지출 계산
   const totalExpense = monthlyExpenses.reduce(
     (sum, expense) => sum + expense.amount,
     0,
   );
 
+  // 남은 예산 계산
   const remainingBudget = monthlyBudget - totalExpense;
 
+  // 금액을 원화로 표시
   const formatWon = (value) => {
     return value.toLocaleString("ko-KR") + "원";
   };
@@ -184,10 +195,8 @@ function App({ user }) {
     setBudgetMessage("");
 
     try {
-      // Firestore에 예산 저장
       await budgetRepository.save(user.uid, selectedMonth, newBudget);
 
-      // 화면에도 반영
       setBudgets((prevBudgets) => ({
         ...prevBudgets,
         [selectedMonth]: newBudget,
@@ -245,6 +254,7 @@ function App({ user }) {
 
     try {
       if (editingId !== null) {
+        // 기존 지출 Firestore 수정
         await expenseRepository.update(user.uid, editingId, expenseData);
 
         setExpenses((prevExpenses) =>
@@ -253,6 +263,7 @@ function App({ user }) {
           ),
         );
       } else {
+        // 새로운 지출 Firestore 추가
         const newId = await expenseRepository.add(user.uid, expenseData);
 
         setExpenses((prevExpenses) => [
@@ -312,14 +323,10 @@ function App({ user }) {
     <main>
       <h1>💰 Campus Wallet</h1>
       <p>대학생을 위한 생활비 관리 서비스</p>
-
       <hr />
-
       <h2>조회할 월 선택</h2>
-
       <label htmlFor="selectedMonth">조회 월</label>
       <br />
-
       <input
         id="selectedMonth"
         type="month"
@@ -327,11 +334,8 @@ function App({ user }) {
         onChange={handleMonthChange}
         disabled={budgetSaving}
       />
-
       <hr />
-
       <h2>{selectedMonth} 생활비 현황</h2>
-
       {budgetLoading ? (
         <p>예산을 불러오는 중입니다...</p>
       ) : (
@@ -341,11 +345,8 @@ function App({ user }) {
           <p>남은 예산: {formatWon(remainingBudget)}</p>
         </>
       )}
-
       <hr />
-
       <h2>월별 예산 설정</h2>
-
       <form onSubmit={handleSaveBudget}>
         <label htmlFor="budget">{selectedMonth} 예산</label>
         <br />
@@ -384,11 +385,8 @@ function App({ user }) {
           </p>
         )}
       </form>
-
       <hr />
-
       <h2>{editingId !== null ? "지출 수정하기" : "지출 추가하기"}</h2>
-
       <form onSubmit={handleSaveExpense}>
         <div>
           <label htmlFor="expenseDate">지출 날짜</label>
@@ -487,11 +485,22 @@ function App({ user }) {
           </>
         )}
       </form>
-
       <hr />
-
       <h2>{selectedMonth} 지출 내역</h2>
-
+      {/* Strategy 패턴: 정렬 방식 선택 */}
+      <label htmlFor="sortOrder">정렬 방식</label>{" "}
+      <select
+        id="sortOrder"
+        value={sortOrder}
+        onChange={(event) => setSortOrder(event.target.value)}
+      >
+        <option value="newest">최신 날짜순</option>
+        <option value="oldest">오래된 날짜순</option>
+        <option value="highest">금액 높은 순</option>
+        <option value="lowest">금액 낮은 순</option>
+      </select>
+      <br />
+      <br />
       {loading ? (
         <p role="status">지출 내역을 불러오는 중입니다...</p>
       ) : loadError ? (
