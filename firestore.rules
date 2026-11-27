@@ -1,0 +1,19 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 로그인한 사용자만 자신의 지출 내역에 접근
+    match /users/{userId}/transactions/{transactionId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+
+    // 로그인한 사용자만 자신의 월별 예산에 접근
+    match /users/{userId}/budgets/{monthId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId;
+    }
+  }
+}
